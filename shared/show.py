@@ -31,6 +31,15 @@ class ClientEntry:
 
 
 @dataclass
+class GlobalSettings:
+    """Global show settings for defaults and display options."""
+    fullscreen: bool = True
+    default_volume: int = 100
+    default_fade_in_ms: int = 0
+    default_fade_out_ms: int = 0
+
+
+@dataclass
 class Cue:
     id: str = ""
     name: str = ""
@@ -69,6 +78,7 @@ class Show:
     media_root: str = "~/cuemesh_media"
     dropout_policy: str = "continue"  # "continue" | "freeze" | "black"
     sync: SyncConfig = field(default_factory=SyncConfig)
+    settings: GlobalSettings = field(default_factory=GlobalSettings)
     clients: list[ClientEntry] = field(default_factory=list)
     cues: list[Cue] = field(default_factory=list)
 
@@ -137,8 +147,16 @@ def load_show(path: Path) -> Show:
 
     show_raw = data.get("show", {})
     sync_raw = show_raw.get("sync", {})
+    settings_raw = show_raw.get("settings", {})
     clients_raw = data.get("clients", [])
     cues_raw = data.get("cues", [])
+
+    settings = GlobalSettings(
+        fullscreen=settings_raw.get("fullscreen", True),
+        default_volume=settings_raw.get("default_volume", 100),
+        default_fade_in_ms=settings_raw.get("default_fade_in_ms", 0),
+        default_fade_out_ms=settings_raw.get("default_fade_out_ms", 0),
+    )
 
     show = Show(
         title=show_raw.get("title", "Untitled Show"),
@@ -148,6 +166,7 @@ def load_show(path: Path) -> Show:
         media_root=show_raw.get("media_root", "~/cuemesh_media"),
         dropout_policy=show_raw.get("dropout_policy", "continue"),
         sync=_parse_sync(sync_raw),
+        settings=settings,
         clients=[ClientEntry(id=c.get("id", ""), name=c.get("name", "")) for c in clients_raw],
         cues=[_parse_cue(c) for c in cues_raw],
     )
@@ -180,6 +199,12 @@ def save_show(show: Show, path: Path) -> None:
     lines.append(f"rate_max = {show.sync.correction.rate_max}")
     lines.append(f"hard_seek_threshold_ms = {show.sync.correction.hard_seek_threshold_ms}")
     lines.append(f"sync_interval_ms = {show.sync.correction.sync_interval_ms}")
+    lines.append("")
+    lines.append("[show.settings]")
+    lines.append(f"fullscreen = {str(show.settings.fullscreen).lower()}")
+    lines.append(f"default_volume = {show.settings.default_volume}")
+    lines.append(f"default_fade_in_ms = {show.settings.default_fade_in_ms}")
+    lines.append(f"default_fade_out_ms = {show.settings.default_fade_out_ms}")
     lines.append("")
 
     for client in show.clients:

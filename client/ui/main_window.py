@@ -8,10 +8,10 @@ from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal, QObject
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QStackedWidget, QWidget,
-    QVBoxLayout, QLabel, QStatusBar,
+    QVBoxLayout, QLabel, QStatusBar, QMessageBox,
 )
 
 from client.mpv_controller import MpvController
@@ -70,6 +70,9 @@ class ClientMainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Searching for controller...")
 
+        # Menu bar
+        self._setup_menu()
+
         # Shortcut: toggle overlay
         shortcut = QShortcut(QKeySequence("Ctrl+I"), self)
         shortcut.activated.connect(self._toggle_overlay)
@@ -78,6 +81,44 @@ class ClientMainWindow(QMainWindow):
         self._signaler.state_changed.connect(self._on_state_changed)
         self._signaler.drift_updated.connect(self._on_drift_updated)
         self._signaler.testscreen_requested.connect(self._on_testscreen_requested)
+
+        # Auto-connect to last controller if available
+        last_connection = self.connect_screen.get_last_connection()
+        if last_connection:
+            host, port = last_connection
+            logger.info("Auto-connecting to %s:%d", host, port)
+            QTimer.singleShot(500, lambda: self._on_connect_requested(host, port))
+
+    def _setup_menu(self) -> None:
+        """Setup menu bar."""
+        menu = self.menuBar()
+        connection_menu = menu.addMenu("&Connection")
+
+        disconnect_act = QAction("&Disconnect", self)
+        disconnect_act.triggered.connect(self._disconnect)
+        connection_menu.addAction(disconnect_act)
+
+        connection_menu.addSeparator()
+        quit_act = QAction("&Quit", self)
+        quit_act.setShortcut(QKeySequence.Quit)
+        quit_act.triggered.connect(self.close)
+        connection_menu.addAction(quit_act)
+
+    def _disconnect(self) -> None:
+        """Disconnect from controller and return to connect screen."""
+        if self._connection:
+            # Close the connection
+            asyncio.run_coroutine_threadsafe(
+                self._connection.disconnect(), self.loop
+            )
+            self._connection = None
+        
+        # Return to connect screen
+        self.stack.setCurrentWidget(self.connect_screen)
+        self.status_bar.showMessage("Disconnected. Searching for controller...")
+        
+        # Restart discovery
+        self.connect_screen._start_discovery()
 
     def _on_connect_requested(self, host: str, port: int) -> None:
         self.connect_screen.stop_discovery()

@@ -1,6 +1,7 @@
 """CueMesh controller application state."""
 from __future__ import annotations
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
@@ -10,6 +11,8 @@ from typing import Optional
 from shared.show import Show, Cue
 
 logger = logging.getLogger("cuemesh.controller.state")
+
+CONFIG_FILE = Path.home() / ".cuemesh" / "controller_config.json"
 
 
 @dataclass
@@ -36,6 +39,8 @@ class AppState:
         self.run = RunState()
         self.recent_shows: list[str] = []
         self._recent_max = 10
+        self.accepted_clients: dict[str, str] = {}  # client_id -> token
+        self._load_config()
 
     def load_show(self, path: Path) -> Show:
         from shared.show import load_show
@@ -67,6 +72,7 @@ class AppState:
             self.recent_shows.remove(path_str)
         self.recent_shows.insert(0, path_str)
         self.recent_shows = self.recent_shows[:self._recent_max]
+        self._save_config()
 
     def current_cue(self) -> Optional[Cue]:
         if self.show is None or self.run.current_cue_index < 0:
@@ -112,3 +118,31 @@ class AppState:
                 self.run.current_cue_index = i
                 return cue
         return None
+
+    def _load_config(self) -> None:
+        """Load controller configuration from disk."""
+        if not CONFIG_FILE.exists():
+            return
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+            self.recent_shows = config.get("recent_shows", [])
+            self.accepted_clients = config.get("accepted_clients", {})
+            logger.info("Loaded config: %d recent shows, %d accepted clients", 
+                       len(self.recent_shows), len(self.accepted_clients))
+        except Exception as e:
+            logger.warning("Failed to load config: %s", e)
+
+    def _save_config(self) -> None:
+        """Save controller configuration to disk."""
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            config = {
+                "recent_shows": self.recent_shows,
+                "accepted_clients": self.accepted_clients,
+            }
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2)
+            logger.debug("Saved config")
+        except Exception as e:
+            logger.warning("Failed to save config: %s", e)

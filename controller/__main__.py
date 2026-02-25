@@ -56,6 +56,10 @@ def main() -> None:
     app.setOrganizationName("CueMesh")
 
     state = AppState()
+    
+    # Load accepted clients into server
+    server.load_trusted(state.accepted_clients)
+    
     window = MainWindow(state, server, log_aggregator, loop)
     window.show()
 

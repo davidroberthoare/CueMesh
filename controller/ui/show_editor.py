@@ -25,7 +25,34 @@ class ShowEditorWidget(QWidget):
         self._setup_ui()
 
     def _setup_ui(self) -> None:
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
+
+        # Global Settings section at the top
+        settings_group = QGroupBox("Global Settings")
+        settings_layout = QFormLayout(settings_group)
+        
+        self.settings_fullscreen = QCheckBox()
+        self.settings_fullscreen.setChecked(True)
+        self.settings_default_volume = QSpinBox()
+        self.settings_default_volume.setRange(0, 100)
+        self.settings_default_volume.setValue(100)
+        self.settings_default_fade_in = QSpinBox()
+        self.settings_default_fade_in.setRange(0, 60000)
+        self.settings_default_fade_in.setValue(0)
+        self.settings_default_fade_out = QSpinBox()
+        self.settings_default_fade_out.setRange(0, 60000)
+        self.settings_default_fade_out.setValue(0)
+        
+        settings_layout.addRow("Fullscreen:", self.settings_fullscreen)
+        settings_layout.addRow("Default Volume:", self.settings_default_volume)
+        settings_layout.addRow("Default Fade In (ms):", self.settings_default_fade_in)
+        settings_layout.addRow("Default Fade Out (ms):", self.settings_default_fade_out)
+        
+        self.btn_apply_settings = QPushButton("Apply Settings")
+        self.btn_apply_settings.clicked.connect(self._apply_settings)
+        settings_layout.addRow(self.btn_apply_settings)
+        
+        layout.addWidget(settings_group)
 
         # Splitter: cue list | cue detail
         splitter = QSplitter(Qt.Horizontal)
@@ -113,6 +140,13 @@ class ShowEditorWidget(QWidget):
         self.cue_list.clear()
         self._current_cue = None
         if self.state.show:
+            # Load global settings
+            self.settings_fullscreen.setChecked(self.state.show.settings.fullscreen)
+            self.settings_default_volume.setValue(self.state.show.settings.default_volume)
+            self.settings_default_fade_in.setValue(self.state.show.settings.default_fade_in_ms)
+            self.settings_default_fade_out.setValue(self.state.show.settings.default_fade_out_ms)
+            
+            # Load cues
             for cue in self.state.show.cues:
                 self.cue_list.addItem(f"[{cue.id}] {cue.name} ({cue.type})")
 
@@ -166,10 +200,29 @@ class ShowEditorWidget(QWidget):
         if self.state.show is None:
             return
         import uuid
-        cue = Cue(id=f"cue-{uuid.uuid4().hex[:6]}", name="New Cue", type="video", file="")
+        # Use default values from global settings
+        cue = Cue(
+            id=f"cue-{uuid.uuid4().hex[:6]}", 
+            name="New Cue", 
+            type="video", 
+            file="",
+            volume=self.state.show.settings.default_volume,
+            fade_in_ms=self.state.show.settings.default_fade_in_ms,
+            fade_out_ms=self.state.show.settings.default_fade_out_ms,
+        )
         self.state.show.cues.append(cue)
         self.refresh()
         self.cue_list.setCurrentRow(len(self.state.show.cues) - 1)
+
+    def _apply_settings(self) -> None:
+        """Apply global settings changes."""
+        if self.state.show is None:
+            return
+        self.state.show.settings.fullscreen = self.settings_fullscreen.isChecked()
+        self.state.show.settings.default_volume = self.settings_default_volume.value()
+        self.state.show.settings.default_fade_in_ms = self.settings_default_fade_in.value()
+        self.state.show.settings.default_fade_out_ms = self.settings_default_fade_out.value()
+        logger.info("Applied global settings")
 
     def _dup_cue(self) -> None:
         if self.state.show is None or self._current_cue is None:

@@ -42,11 +42,9 @@ class ClientManagerWidget(QWidget):
 
         pending_btns = QHBoxLayout()
         self.btn_accept = QPushButton("Accept Selected")
-        self.btn_reject = QPushButton("Reject Selected")
         self.btn_accept.clicked.connect(self._accept_selected)
-        self.btn_reject.clicked.connect(self._reject_selected)
         pending_btns.addWidget(self.btn_accept)
-        pending_btns.addWidget(self.btn_reject)
+        pending_btns.addStretch()
         pending_layout.addLayout(pending_btns)
         layout.addWidget(pending_group)
 
@@ -64,8 +62,12 @@ class ClientManagerWidget(QWidget):
         accepted_btns = QHBoxLayout()
         self.btn_rename = QPushButton("Rename Client")
         self.btn_rename.clicked.connect(self._rename_client)
+        self.btn_reject = QPushButton("Reject Selected")
+        self.btn_reject.clicked.connect(self._reject_selected)
+        self.btn_reject.setStyleSheet("background-color: #F44336; color: white;")
         accepted_btns.addWidget(self.btn_rename)
         accepted_btns.addStretch()
+        accepted_btns.addWidget(self.btn_reject)
         accepted_layout.addLayout(accepted_btns)
         layout.addWidget(accepted_group)
 
@@ -108,15 +110,30 @@ class ClientManagerWidget(QWidget):
             if row < len(pending):
                 cid, _ = pending[row]
                 asyncio.run_coroutine_threadsafe(
-                    self.server.accept_client(cid), self.loop
+                    self._accept_and_save(cid), self.loop
                 )
 
+    async def _accept_and_save(self, cid: str) -> None:
+        """Accept a client and save to state."""
+        await self.server.accept_client(cid)
+        # Save the token to state
+        if cid in self.server._trusted:
+            self.state.accepted_clients[cid] = self.server._trusted[cid]
+            self.state._save_config()
+
     def _reject_selected(self) -> None:
-        rows = set(idx.row() for idx in self.pending_table.selectedIndexes())
-        pending = [(cid, s) for cid, s in self.server.clients.items() if s.status == "pending"]
+        """Reject selected accepted clients."""
+        rows = set(idx.row() for idx in self.accepted_table.selectedIndexes())
+        accepted = [(cid, s) for cid, s in self.server.clients.items() if s.status == "accepted"]
         for row in rows:
-            if row < len(pending):
-                cid, _ = pending[row]
+            if row < len(accepted):
+                cid, _ = accepted[row]
+                # Remove from accepted clients and disconnect
+                if cid in self.state.accepted_clients:
+                    del self.state.accepted_clients[cid]
+                    self.state._save_config()
+                if cid in self.server._trusted:
+                    del self.server._trusted[cid]
                 asyncio.run_coroutine_threadsafe(
                     self.server.reject_client(cid), self.loop
                 )

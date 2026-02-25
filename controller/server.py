@@ -240,6 +240,10 @@ class ControllerServer:
             if session.is_accepted:
                 await session.send(msg_type, payload)
 
+    def set_show_settings(self, settings) -> None:
+        """Store show settings for sending to clients."""
+        self._show_settings = settings
+
     async def send_load_cue(self, cue) -> None:
         payload = {
             "cue_id": cue.id,
@@ -253,6 +257,9 @@ class ControllerServer:
         }
         if cue.end_time_ms is not None:
             payload["end_time_ms"] = cue.end_time_ms
+        # Add show settings if available
+        if hasattr(self, '_show_settings') and self._show_settings:
+            payload["fullscreen"] = self._show_settings.fullscreen
         await self.broadcast_accepted(MSG_LOAD_CUE, payload)
 
     async def send_play_at(self, cue_id: str, start_lead_ms: int = 250) -> None:

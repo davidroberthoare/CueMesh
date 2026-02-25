@@ -98,6 +98,17 @@ class ClientConnection:
             if self._heartbeat_task:
                 self._heartbeat_task.cancel()
 
+    async def disconnect(self) -> None:
+        """Disconnect from controller."""
+        self._running = False
+        if self._ws:
+            try:
+                await self._ws.close()
+                logger.info("Disconnected from controller")
+            except Exception as e:
+                logger.warning("Error during disconnect: %s", e)
+        self._set_state(STATE_IDLE)
+
     async def _do_hello(self) -> None:
         await self._send(MSG_HELLO, {
             "client_id": self.client_id,
@@ -195,6 +206,7 @@ class ClientConnection:
         rel_path = payload.get("asset_relpath", "")
         volume = payload.get("volume", 100)
         loop = payload.get("loop", False)
+        fullscreen = payload.get("fullscreen", True)  # Use setting from show, default to True
         self._current_cue_id = cue_id
         
         # Show full path for debugging
@@ -207,7 +219,7 @@ class ClientConnection:
         if ok:
             await self.mpv.set_volume(volume)
             await self.mpv.set_loop(loop)
-            await self.mpv.set_fullscreen(True)
+            await self.mpv.set_fullscreen(fullscreen)
             self._set_state(STATE_READY)
             logger.info("Cue %s ready", cue_id)
             await self._send("READY", {"cue_id": cue_id})

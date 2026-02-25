@@ -1,7 +1,9 @@
 """CueMesh Client connection/discovery screen."""
 from __future__ import annotations
 import asyncio
+import json
 import logging
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -14,6 +16,8 @@ from PySide6.QtWidgets import (
 from client.discovery_browser import DiscoveryBrowser, DiscoveredController
 
 logger = logging.getLogger("cuemesh.client.ui.connect")
+
+CONFIG_FILE = Path.home() / ".cuemesh" / "client_config.json"
 
 
 class ConnectScreenWidget(QWidget):
@@ -99,13 +103,42 @@ class ConnectScreenWidget(QWidget):
         if not item:
             return
         host, port = item.data(Qt.UserRole)
+        self._save_connection(host, port)
         self.connect_requested.emit(host, port)
 
     def _connect_manual(self) -> None:
         host = self.fld_host.text().strip()
         port = self.fld_port.value()
         if host:
+            self._save_connection(host, port)
             self.connect_requested.emit(host, port)
+
+    def _save_connection(self, host: str, port: int) -> None:
+        """Save last connection to config file."""
+        try:
+            CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            config = {"last_host": host, "last_port": port}
+            with open(CONFIG_FILE, "w") as f:
+                json.dump(config, f, indent=2)
+            logger.info("Saved connection: %s:%d", host, port)
+        except Exception as e:
+            logger.warning("Failed to save connection config: %s", e)
+
+    def get_last_connection(self) -> Optional[tuple[str, int]]:
+        """Load last connection from config file."""
+        if not CONFIG_FILE.exists():
+            return None
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                config = json.load(f)
+            host = config.get("last_host")
+            port = config.get("last_port")
+            if host and port:
+                logger.info("Loaded last connection: %s:%d", host, port)
+                return (host, port)
+        except Exception as e:
+            logger.warning("Failed to load connection config: %s", e)
+        return None
 
     def stop_discovery(self) -> None:
         if self._browser:

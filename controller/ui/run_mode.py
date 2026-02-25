@@ -24,9 +24,6 @@ class RunModeWidget(QWidget):
         self.state = state
         self.server = server
         self.loop = loop
-        self._jog_timer = QTimer()
-        self._jog_timer.timeout.connect(self._jog_tick)
-        self._jog_direction = 0  # -1 backward, 1 forward
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -59,9 +56,6 @@ class RunModeWidget(QWidget):
         self.btn_prev = QPushButton("◀ PREV")
         self.btn_prev.setMinimumHeight(60)
         self.btn_prev.clicked.connect(self._on_prev)
-        self.btn_next = QPushButton("NEXT ▶")
-        self.btn_next.setMinimumHeight(60)
-        self.btn_next.clicked.connect(self._on_next)
         self.btn_pause = QPushButton("PAUSE")
         self.btn_pause.setMinimumHeight(60)
         self.btn_pause.setStyleSheet("background-color: #FF9800; color: white;")
@@ -70,7 +64,7 @@ class RunModeWidget(QWidget):
         self.btn_stop.setMinimumHeight(60)
         self.btn_stop.setStyleSheet("background-color: #F44336; color: white;")
         self.btn_stop.clicked.connect(self._on_stop)
-        for btn in [self.btn_prev, self.btn_next, self.btn_pause, self.btn_stop]:
+        for btn in [self.btn_prev, self.btn_pause, self.btn_stop]:
             nav_row.addWidget(btn)
         layout.addLayout(nav_row)
 
@@ -86,38 +80,30 @@ class RunModeWidget(QWidget):
         jump_row.addStretch()
         layout.addLayout(jump_row)
 
-        # Blackout toggle
-        ctl_row = QHBoxLayout()
-        self.btn_blackout = QPushButton("BLACKOUT")
-        self.btn_blackout.setCheckable(True)
-        self.btn_blackout.setMinimumHeight(50)
-        self.btn_blackout.setStyleSheet("background-color: #212121; color: white;")
-        self.btn_blackout.clicked.connect(self._on_blackout)
-        ctl_row.addWidget(self.btn_blackout)
-
-        # Jog controls
-        jog_group = QGroupBox("Jog / Rate")
-        jog_layout = QHBoxLayout(jog_group)
-        self.btn_jog_back = QPushButton("◀◀ JOG")
-        self.btn_jog_back.setCheckable(True)
-        self.btn_jog_back.pressed.connect(lambda: self._start_jog(-1))
-        self.btn_jog_back.released.connect(self._stop_jog)
-        self.btn_jog_fwd = QPushButton("JOG ▶▶")
-        self.btn_jog_fwd.setCheckable(True)
-        self.btn_jog_fwd.pressed.connect(lambda: self._start_jog(1))
-        self.btn_jog_fwd.released.connect(self._stop_jog)
-        self.rate_slider = QSlider(Qt.Horizontal)
-        self.rate_slider.setRange(50, 200)
-        self.rate_slider.setValue(100)
-        self.rate_label = QLabel("Rate: 1.0x")
-        self.rate_slider.valueChanged.connect(self._on_rate_changed)
-        jog_layout.addWidget(self.btn_jog_back)
-        jog_layout.addWidget(self.rate_slider)
-        jog_layout.addWidget(self.rate_label)
-        jog_layout.addWidget(self.btn_jog_fwd)
-        ctl_row.addWidget(jog_group)
-
-        layout.addLayout(ctl_row)
+        # Playback timeline
+        timeline_group = QGroupBox("Playback Timeline")
+        timeline_layout = QVBoxLayout(timeline_group)
+        
+        timeline_info_row = QHBoxLayout()
+        self.timeline_position_label = QLabel("0:00")
+        self.timeline_duration_label = QLabel("0:00")
+        timeline_info_row.addWidget(self.timeline_position_label)
+        timeline_info_row.addStretch()
+        timeline_info_row.addWidget(self.timeline_duration_label)
+        timeline_layout.addLayout(timeline_info_row)
+        
+        self.timeline_slider = QSlider(Qt.Horizontal)
+        self.timeline_slider.setRange(0, 1000)
+        self.timeline_slider.setValue(0)
+        self.timeline_slider.sliderPressed.connect(self._on_timeline_pressed)
+        self.timeline_slider.sliderReleased.connect(self._on_timeline_released)
+        self.timeline_slider.sliderMoved.connect(self._on_timeline_moved)
+        timeline_layout.addWidget(self.timeline_slider)
+        
+        self._timeline_dragging = False
+        self._timeline_duration_ms = 0
+        
+        layout.addWidget(timeline_group)
 
         # Client status mini-view
         status_group = QGroupBox("Client Status")
@@ -131,6 +117,8 @@ class RunModeWidget(QWidget):
         """Refresh cue list after show load."""
         self.cue_selector.clear()
         if self.state.show:
+            # Update server with show settings
+            self.server.set_show_settings(self.state.show.settings)
             for cue in self.state.show.cues:
                 self.cue_selector.addItem(f"[{cue.id}] {cue.name}", cue.id)
         self._update_cue_labels()
@@ -138,6 +126,7 @@ class RunModeWidget(QWidget):
     def refresh_status(self) -> None:
         """Called periodically to update client status display."""
         self.status_list.clear()
+        max_position_ms = 0
         for cid, session in self.server.clients.items():
             if session.is_accepted:
                 age = session.heartbeat_age
@@ -148,6 +137,12 @@ class RunModeWidget(QWidget):
                 if age > 10:
                     item.setForeground(Qt.red)
                 self.status_list.addItem(item)
+                max_position_ms = max(max_position_ms, session.position_ms)
+        
+        # Update timeline
+        if not self._timeline_dragging:
+            self._update_timeline_position(max_position_ms)
+        
         self._update_cue_labels()
 
     def _update_cue_labels(self) -> None:
@@ -155,13 +150,29 @@ class RunModeWidget(QWidget):
         nxt = self.state.next_cue()
         self.lbl_current.setText(f"CURRENT: {cur.name if cur else '—'}")
         self.lbl_next.setText(f"NEXT: {nxt.name if nxt else '—'}")
+        
+        # Update timeline duration based on current cue
+        if cur:
+            # Calculate duration from cue data
+            if cur.end_time_ms is not None:
+                self._timeline_duration_ms = cur.end_time_ms - cur.start_time_ms
+            else:
+                # If no end time, try to estimate from file metadata or default to large value
+                self._timeline_duration_ms = 300000  # Default 5 minutes
+            self.timeline_slider.setRange(0, self._timeline_duration_ms)
+        else:
+            self._timeline_duration_ms = 0
+            self.timeline_slider.setRange(0, 1000)
+        
+        # Update duration label
+        self.timeline_duration_label.setText(self._format_time_ms(self._timeline_duration_ms))
 
     def _on_go(self) -> None:
+        """GO button: advance to next cue and play it."""
         if self.state.show is None or not self.state.show.cues:
             return
-        if self.state.run.current_cue_index < 0:
-            self.state.go_first()
-        cue = self.state.current_cue()
+        # Advance to next cue
+        cue = self.state.go_next()
         if cue is None:
             return
         lead_ms = self.state.show.sync.start_lead_ms
@@ -175,13 +186,6 @@ class RunModeWidget(QWidget):
         await asyncio.sleep(lead_ms / 1000.0 * 0.5)
         await self.server.send_play_at(cue.id, lead_ms)
 
-    def _on_next(self) -> None:
-        cue = self.state.go_next()
-        if cue:
-            lead_ms = self.state.show.sync.start_lead_ms if self.state.show else 250
-            asyncio.run_coroutine_threadsafe(self._do_go(cue, lead_ms), self.loop)
-        self._update_cue_labels()
-
     def _on_prev(self) -> None:
         cue = self.state.go_prev()
         if cue:
@@ -193,12 +197,9 @@ class RunModeWidget(QWidget):
         asyncio.run_coroutine_threadsafe(self.server.send_pause(), self.loop)
 
     def _on_stop(self) -> None:
+        """STOP button: stop playback and go to black."""
         asyncio.run_coroutine_threadsafe(self.server.send_stop(), self.loop)
-
-    def _on_blackout(self, checked: bool) -> None:
-        asyncio.run_coroutine_threadsafe(self.server.send_blackout(checked), self.loop)
-        style = "background-color: #F44336; color: white;" if checked else "background-color: #212121; color: white;"
-        self.btn_blackout.setStyleSheet(style)
+        asyncio.run_coroutine_threadsafe(self.server.send_blackout(True), self.loop)
 
     def _on_jump(self) -> None:
         cue_id = self.cue_selector.currentData()
@@ -209,26 +210,29 @@ class RunModeWidget(QWidget):
                 asyncio.run_coroutine_threadsafe(self._do_go(cue, lead_ms), self.loop)
         self._update_cue_labels()
 
-    def _on_rate_changed(self, value: int) -> None:
-        rate = value / 100.0
-        self.rate_label.setText(f"Rate: {rate:.2f}x")
-        asyncio.run_coroutine_threadsafe(self.server.send_set_rate(rate), self.loop)
+    def _on_timeline_pressed(self) -> None:
+        """User started dragging the timeline slider."""
+        self._timeline_dragging = True
 
-    def _start_jog(self, direction: int) -> None:
-        self._jog_direction = direction
-        self._jog_timer.start(100)
+    def _on_timeline_moved(self, value: int) -> None:
+        """User is dragging the timeline slider."""
+        # Update position label while dragging
+        self.timeline_position_label.setText(self._format_time_ms(value))
 
-    def _stop_jog(self) -> None:
-        self._jog_timer.stop()
-        self._jog_direction = 0
+    def _on_timeline_released(self) -> None:
+        """User released the timeline slider - seek to that position."""
+        self._timeline_dragging = False
+        position_ms = self.timeline_slider.value()
+        asyncio.run_coroutine_threadsafe(self.server.send_seek(position_ms), self.loop)
 
-    def _jog_tick(self) -> None:
-        if self._jog_direction > 0:
-            asyncio.run_coroutine_threadsafe(self.server.send_set_rate(2.0), self.loop)
-        elif self._jog_direction < 0:
-            # Backward jog: seek backward repeatedly
-            asyncio.run_coroutine_threadsafe(self._backward_jog(), self.loop)
+    def _update_timeline_position(self, position_ms: int) -> None:
+        """Update timeline slider and label based on current position."""
+        self.timeline_slider.setValue(min(position_ms, self._timeline_duration_ms))
+        self.timeline_position_label.setText(self._format_time_ms(position_ms))
 
-    async def _backward_jog(self) -> None:
-        # Seek back 200ms as jog step
-        await self.server.broadcast_accepted("SEEK_RELATIVE", {"delta_ms": -200})
+    def _format_time_ms(self, ms: int) -> str:
+        """Format milliseconds as MM:SS."""
+        total_seconds = ms // 1000
+        minutes = total_seconds // 60
+        seconds = total_seconds % 60
+        return f"{minutes}:{seconds:02d}"
