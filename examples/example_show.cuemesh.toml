@@ -1,0 +1,86 @@
+[show]
+title = "Example Theatre Show"
+version = 1
+created_utc = "2026-02-25T00:00:00+00:00"
+modified_utc = "2026-02-25T00:00:00+00:00"
+media_root = "./cuemesh_media"
+dropout_policy = "continue"
+
+[show.sync]
+mode = "medium"
+max_drift_ms = 150
+start_lead_ms = 250
+
+[show.sync.correction]
+rate_min = 0.98
+rate_max = 1.02
+hard_seek_threshold_ms = 300
+sync_interval_ms = 1000
+
+[[clients]]
+id = "pi-stage-left"
+name = "Stage Left Monitor"
+
+[[clients]]
+id = "pi-stage-right"
+name = "Stage Right Monitor"
+
+[[cues]]
+id = "cue-001"
+name = "Opening Title Card"
+type = "image"
+file = "images/title_card.png"
+start_time_ms = 0
+volume = 100
+loop = false
+fade_in_ms = 500
+fade_out_ms = 500
+notes = "Opening image shown before show begins"
+
+[[cues]]
+id = "cue-002"
+name = "Intro Video"
+type = "video"
+file = "videos/intro.webm"
+start_time_ms = 0
+end_time_ms = 30000
+volume = 85
+loop = false
+fade_in_ms = 1000
+fade_out_ms = 1000
+auto_follow_ms = 500
+notes = "30-second intro video, auto-follows to next cue"
+
+[[cues]]
+id = "cue-003"
+name = "Scene 1 Ambient"
+type = "video"
+file = "videos/scene1_ambient.webm"
+start_time_ms = 0
+volume = 70
+loop = true
+fade_in_ms = 2000
+fade_out_ms = 2000
+notes = "Looping ambient video for scene 1"
+
+[[cues]]
+id = "cue-004"
+name = "Intermission Slide"
+type = "image"
+file = "images/intermission.png"
+start_time_ms = 0
+volume = 0
+loop = false
+notes = "Static intermission slide"
+
+[[cues]]
+id = "cue-005"
+name = "Closing Credits"
+type = "video"
+file = "videos/credits.webm"
+start_time_ms = 0
+volume = 100
+loop = false
+fade_in_ms = 500
+fade_out_ms = 2000
+notes = "End of show credits roll"
