@@ -94,19 +94,22 @@ Use PNG or JPEG:
 
 ## Folder structure
 
+Place all media files in `~/cuemesh_media/` on each client machine:
+
 ```
-cuemesh_media/
-├── videos/
-│   ├── intro.webm
-│   ├── scene1.webm
-│   └── credits.webm
-└── images/
-    ├── title_card.png
-    └── intermission.png
+~/cuemesh_media/
+├── intro.webm
+├── scene1.webm
+├── credits.webm
+├── title_card.png
+└── intermission.png
 ```
 
-All paths in `.cuemesh.toml` are relative to `cuemesh_media/`:
+All file references in `.cuemesh.toml` use filenames only:
 ```toml
+[show]
+media_root = "~/cuemesh_media"   # Standard location
+
 [[cues]]
-file = "videos/intro.webm"
+file = "intro.webm"   # Just the filename
 ```

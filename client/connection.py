@@ -52,10 +52,11 @@ def _save_token(client_id: str, token: Optional[str]) -> None:
 class ClientConnection:
     """Manages connection to the controller and drives mpv."""
 
-    def __init__(self, mpv: MpvController, on_state_change=None, on_error=None):
+    def __init__(self, mpv: MpvController, on_state_change=None, on_error=None, on_testscreen=None):
         self.mpv = mpv
         self.on_state_change = on_state_change  # callback(state_str)
         self.on_error = on_error
+        self.on_testscreen = on_testscreen  # callback(on: bool)
         self.client_id, self.token = _load_token()
         self.hostname = socket.gethostname()
         self.platform_str = f"{platform.system()} {platform.machine()}"
@@ -179,7 +180,8 @@ class ClientConnection:
 
         elif msg_type == MSG_SHOW_TESTSCREEN:
             on = payload.get("on", True)
-            await self.mpv.show_testscreen(on)
+            if self.on_testscreen:
+                self.on_testscreen(on)
 
         elif msg_type == MSG_REQUEST_STATUS:
             await self._send_status()
@@ -194,17 +196,25 @@ class ClientConnection:
         volume = payload.get("volume", 100)
         loop = payload.get("loop", False)
         self._current_cue_id = cue_id
-
+        
+        # Show full path for debugging
+        full_path = (self.mpv.media_root / rel_path).resolve()
+        logger.info("Loading cue %s: %s", cue_id, rel_path)
+        logger.info("  Full system path: %s", full_path)
+        logger.info("  Media root: %s", self.mpv.media_root)
+        
         ok = await self.mpv.load_file(rel_path)
         if ok:
             await self.mpv.set_volume(volume)
             await self.mpv.set_loop(loop)
             await self.mpv.set_fullscreen(True)
             self._set_state(STATE_READY)
+            logger.info("Cue %s ready", cue_id)
             await self._send("READY", {"cue_id": cue_id})
         else:
             self._set_state(STATE_ERROR)
-            logger.error("Failed to load cue: %s", rel_path)
+            logger.error("Failed to load cue %s (file: %s)", cue_id, full_path)
+            await self._send("ERROR", {"cue_id": cue_id, "reason": f"Failed to load file: {full_path}"})
 
     async def _handle_play_at(self, payload: dict) -> None:
         cue_id = payload.get("cue_id")

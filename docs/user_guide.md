@@ -39,18 +39,16 @@ pip install -e ".[dev]"
 ## Quick Start
 
 ### 1. Prepare media files
-Place all media files in a folder named `cuemesh_media/` next to your show file:
+Place all media files in `~/cuemesh_media/` on each client machine:
 ```
-my_show/
-├── my_show.cuemesh.toml
-└── cuemesh_media/
-    ├── videos/
-    │   └── intro.webm
-    └── images/
-        └── title_card.png
+~/cuemesh_media/
+├── intro.webm
+├── title_card.png
+├── scene1_ambient.webm
+└── intermission.png
 ```
 
-All clients must have identical `cuemesh_media/` folders.
+All clients must have identical media files in their `~/cuemesh_media/` folders. The show file references files by filename only.
 
 ### 2. Start the Controller
 ```bash

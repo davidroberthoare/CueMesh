@@ -1,13 +1,13 @@
 [build-system]
 requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "cuemesh"
 version = "0.1.0"
 description = "Open-source portable offline LAN-only synchronized video/image playback for small theatres"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = {text = "MIT"}
 requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.6.0",
@@ -25,6 +25,9 @@ dev = [
 [project.scripts]
 cuemesh-controller = "controller.__main__:main"
 cuemesh-client = "client.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["controller*", "client*", "shared*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

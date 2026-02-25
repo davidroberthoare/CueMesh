@@ -66,7 +66,7 @@ class Show:
     version: int = 1
     created_utc: str = ""
     modified_utc: str = ""
-    media_root: str = "./cuemesh_media"
+    media_root: str = "~/cuemesh_media"
     dropout_policy: str = "continue"  # "continue" | "freeze" | "black"
     sync: SyncConfig = field(default_factory=SyncConfig)
     clients: list[ClientEntry] = field(default_factory=list)
@@ -145,7 +145,7 @@ def load_show(path: Path) -> Show:
         version=show_raw.get("version", 1),
         created_utc=show_raw.get("created_utc", ""),
         modified_utc=show_raw.get("modified_utc", ""),
-        media_root=show_raw.get("media_root", "./cuemesh_media"),
+        media_root=show_raw.get("media_root", "~/cuemesh_media"),
         dropout_policy=show_raw.get("dropout_policy", "continue"),
         sync=_parse_sync(sync_raw),
         clients=[ClientEntry(id=c.get("id", ""), name=c.get("name", "")) for c in clients_raw],

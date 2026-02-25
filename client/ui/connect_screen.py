@@ -18,12 +18,14 @@ logger = logging.getLogger("cuemesh.client.ui.connect")
 
 class ConnectScreenWidget(QWidget):
     connect_requested = Signal(str, int)  # host, port
+    _controller_discovered = Signal(object)  # DiscoveredController
 
     def __init__(self, loop: asyncio.AbstractEventLoop, parent=None):
         super().__init__(parent)
         self.loop = loop
         self._browser: Optional[DiscoveryBrowser] = None
         self._setup_ui()
+        self._controller_discovered.connect(self._add_discovered)
         self._start_discovery()
 
     def _setup_ui(self) -> None:
@@ -73,8 +75,8 @@ class ConnectScreenWidget(QWidget):
 
     def _start_discovery(self) -> None:
         def on_found(dc: DiscoveredController) -> None:
-            # Update list from any thread
-            self._add_discovered(dc)
+            # Emit signal to marshal to Qt thread
+            self._controller_discovered.emit(dc)
 
         self._browser = DiscoveryBrowser(on_found=on_found)
         asyncio.run_coroutine_threadsafe(self._browser.start(), self.loop)

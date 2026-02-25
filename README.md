@@ -68,7 +68,7 @@ Show files are hand-editable TOML (`.cuemesh.toml`):
 [show]
 title = "My Show"
 version = 1
-media_root = "./cuemesh_media"
+media_root = "~/cuemesh_media"   # Standard location for all media files
 dropout_policy = "continue"   # "continue" | "freeze" | "black"
 
 [show.sync]
@@ -80,7 +80,7 @@ start_lead_ms = 250
 id = "cue-001"
 name = "Opening Video"
 type = "video"
-file = "videos/opening.webm"
+file = "opening.webm"   # Filename only - looked up in ~/cuemesh_media
 volume = 85
 loop = false
 fade_in_ms = 1000

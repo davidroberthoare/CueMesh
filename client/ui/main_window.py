@@ -26,6 +26,7 @@ logger = logging.getLogger("cuemesh.client.ui")
 class _StateSignaler(QObject):
     state_changed = Signal(str)
     drift_updated = Signal(float)
+    testscreen_requested = Signal(bool)
 
 
 class ClientMainWindow(QMainWindow):
@@ -76,6 +77,7 @@ class ClientMainWindow(QMainWindow):
         # Wire signals
         self._signaler.state_changed.connect(self._on_state_changed)
         self._signaler.drift_updated.connect(self._on_drift_updated)
+        self._signaler.testscreen_requested.connect(self._on_testscreen_requested)
 
     def _on_connect_requested(self, host: str, port: int) -> None:
         self.connect_screen.stop_discovery()
@@ -87,9 +89,13 @@ class ClientMainWindow(QMainWindow):
         def on_state(state: str):
             self._signaler.state_changed.emit(state)
 
+        def on_testscreen(on: bool):
+            self._signaler.testscreen_requested.emit(on)
+
         self._connection = ClientConnection(
             self.mpv,
             on_state_change=on_state,
+            on_testscreen=on_testscreen,
         )
         # Wire drift
         orig_send = self._connection._clock.send
@@ -124,3 +130,20 @@ class ClientMainWindow(QMainWindow):
             self.overlay = PlaybackOverlay(self._connection.client_id, parent=None)
         if self.overlay:
             self.overlay.toggle()
+
+    def _on_testscreen_requested(self, on: bool) -> None:
+        """Show or hide the test screen widget."""
+        if on:
+            if self.test_screen is None and self._connection:
+                self.test_screen = TestScreen(
+                    self._connection.client_id,
+                    self._connection.hostname
+                )
+                # Update with current drift
+                if self._drift_ms:
+                    self.test_screen.update_drift(self._drift_ms)
+            if self.test_screen:
+                self.test_screen.showFullScreen()
+        else:
+            if self.test_screen:
+                self.test_screen.hide()

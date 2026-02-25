@@ -12,7 +12,7 @@ title = "Test Show"
 version = 1
 created_utc = "2026-01-01T00:00:00+00:00"
 modified_utc = "2026-01-01T00:00:00+00:00"
-media_root = "./cuemesh_media"
+media_root = "~/cuemesh_media"
 dropout_policy = "continue"
 
 [show.sync]
@@ -60,7 +60,7 @@ def test_load_show_basic():
         show = load_show(path)
         assert show.title == "Test Show"
         assert show.version == 1
-        assert show.media_root == "./cuemesh_media"
+        assert show.media_root == "~/cuemesh_media"
         assert show.dropout_policy == "continue"
         assert len(show.cues) == 2
     finally:

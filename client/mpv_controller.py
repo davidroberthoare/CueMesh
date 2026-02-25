@@ -29,8 +29,8 @@ class MpvController:
     or named pipe (Windows).
     """
 
-    def __init__(self, media_root: str = "."):
-        self.media_root = Path(media_root)
+    def __init__(self, media_root: str = "~/cuemesh_media"):
+        self.media_root = Path(media_root).expanduser()
         self._proc: Optional[subprocess.Popen] = None
         self._socket_path = str(Path(tempfile.gettempdir()) / f"cuemesh_mpv_{os.getpid()}.sock")
         self._reader: Optional[asyncio.StreamReader] = None
@@ -43,6 +43,8 @@ class MpvController:
 
     async def start(self) -> bool:
         """Start mpv subprocess."""
+        logger.info("Starting mpv controller...")
+        
         # Clean up old socket
         if os.path.exists(self._socket_path):
             os.unlink(self._socket_path)
@@ -63,32 +65,45 @@ class MpvController:
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            logger.info("mpv started (pid=%d)", self._proc.pid)
+            logger.info("mpv process started (pid=%d)", self._proc.pid)
         except FileNotFoundError:
-            logger.error("mpv not found; install mpv to use client playback")
+            logger.error("="*60)
+            logger.error("MPV NOT FOUND!")
+            logger.error("mpv is required for playback but is not installed.")
+            logger.error("On macOS, install with: brew install mpv")
+            logger.error("On Linux, install with: sudo apt install mpv")
+            logger.error("="*60)
             return False
 
         # Wait for socket to appear
-        for _ in range(50):
+        logger.info("Waiting for mpv IPC socket at: %s", self._socket_path)
+        for i in range(50):
             await asyncio.sleep(0.1)
             if os.path.exists(self._socket_path):
+                logger.info("mpv IPC socket appeared after %.1fs", i * 0.1)
                 break
         else:
-            logger.error("mpv IPC socket did not appear")
+            logger.error("mpv IPC socket did not appear after 5 seconds")
+            logger.error("mpv process may have crashed. Check if mpv runs: mpv --version")
             return False
 
         await self._connect_socket()
+        if self._connected:
+            logger.info("mpv controller fully connected and ready")
+        else:
+            logger.error("mpv controller failed to connect to IPC socket")
         return self._connected
 
     async def _connect_socket(self) -> None:
+        logger.debug("Attempting to connect to mpv IPC socket...")
         try:
             self._reader, self._writer = await asyncio.open_unix_connection(self._socket_path)
             self._connected = True
             self._running = True
             self._read_task = asyncio.create_task(self._read_loop())
-            logger.info("Connected to mpv IPC socket")
+            logger.info("Successfully connected to mpv IPC socket")
         except Exception as e:
-            logger.error("Failed to connect to mpv socket: %s", e)
+            logger.error("Failed to connect to mpv IPC socket: %s", e)
             self._connected = False
 
     async def _read_loop(self) -> None:
@@ -121,8 +136,13 @@ class MpvController:
 
     async def _command(self, *args: Any) -> Optional[dict]:
         """Send a command to mpv and wait for response."""
-        if not self._connected or not self._writer:
+        if not self._connected:
+            logger.error("mpv not connected (cannot send command: %s)", args[0] if args else "")
             return None
+        if not self._writer:
+            logger.error("mpv writer is None (cannot send command: %s)", args[0] if args else "")
+            return None
+        
         req_id = _next_id()
         cmd = json.dumps({"command": list(args), "request_id": req_id}) + "\n"
         loop = asyncio.get_event_loop()
@@ -131,20 +151,54 @@ class MpvController:
         try:
             self._writer.write(cmd.encode())
             await self._writer.drain()
-            return await asyncio.wait_for(fut, timeout=3.0)
+            result = await asyncio.wait_for(fut, timeout=3.0)
+            logger.debug("mpv command '%s' response: %s", args[0] if args else "", result)
+            return result
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
-            logger.warning("mpv command timed out: %s", args[0] if args else "")
+            logger.error("mpv command timed out after 3s: %s (args: %s)", args[0] if args else "", args[1:] if len(args) > 1 else "")
             return None
         except Exception as e:
             self._pending.pop(req_id, None)
-            logger.error("mpv command error: %s", e)
+            logger.error("mpv command exception: %s (command: %s)", e, args)
             return None
 
     async def load_file(self, rel_path: str) -> bool:
-        abs_path = str((self.media_root / rel_path).resolve())
-        result = await self._command("loadfile", abs_path, "replace")
-        return result is not None
+        abs_path = (self.media_root / rel_path).resolve()
+        abs_path_str = str(abs_path)
+        
+        logger.info("Loading file: %s", abs_path_str)
+        logger.debug("  Media root: %s", self.media_root)
+        logger.debug("  Relative path: %s", rel_path)
+        logger.debug("  mpv connected: %s, writer: %s, running: %s", self._connected, self._writer is not None, self._running)
+        
+        # Check mpv connection status
+        if not self._connected:
+            logger.error("Cannot load file: mpv is not connected")
+            return False
+        
+        # Check if file exists
+        if not abs_path.exists():
+            logger.error("File does not exist: %s", abs_path_str)
+            return False
+        
+        if not abs_path.is_file():
+            logger.error("Path is not a file: %s", abs_path_str)
+            return False
+        
+        result = await self._command("loadfile", abs_path_str, "replace")
+        if result is None:
+            logger.error("mpv loadfile command returned None for: %s", abs_path_str)
+            logger.error("  This usually means: connection lost, timeout, or command error (check logs above)")
+            return False
+        
+        if result.get("error") != "success":
+            logger.error("mpv loadfile error response: %s for file: %s", result.get("error"), abs_path_str)
+            logger.error("  Full mpv response: %s", result)
+            return False
+            
+        logger.info("Successfully loaded file: %s", abs_path_str)
+        return True
 
     async def play(self) -> None:
         await self._command("set_property", "pause", False)
