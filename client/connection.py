@@ -207,6 +207,9 @@ class ClientConnection:
         volume = payload.get("volume", 100)
         loop = payload.get("loop", False)
         fullscreen = payload.get("fullscreen", True)  # Use setting from show, default to True
+        fade_in_ms = payload.get("fade_in_ms", 0)
+        fade_out_ms = payload.get("fade_out_ms", 0)
+        end_time_ms = payload.get("end_time_ms")
         self._current_cue_id = cue_id
         
         # Show full path for debugging
@@ -214,8 +217,9 @@ class ClientConnection:
         logger.info("Loading cue %s: %s", cue_id, rel_path)
         logger.info("  Full system path: %s", full_path)
         logger.info("  Media root: %s", self.mpv.media_root)
+        logger.info("  Fade: in=%dms, out=%dms", fade_in_ms, fade_out_ms)
         
-        ok = await self.mpv.load_file(rel_path)
+        ok = await self.mpv.load_file(rel_path, fade_in_ms, fade_out_ms, end_time_ms)
         if ok:
             await self.mpv.set_volume(volume)
             await self.mpv.set_loop(loop)

@@ -40,6 +40,9 @@ class MpvController:
         self._connected = False
         self._read_task: Optional[asyncio.Task] = None
         self.on_eof: Optional[callable] = None  # called when file ends
+        self._fade_in_ms: int = 0
+        self._fade_out_ms: int = 0
+        self._end_time_ms: Optional[int] = None
 
     async def start(self) -> bool:
         """Start mpv subprocess."""
@@ -163,11 +166,16 @@ class MpvController:
             logger.error("mpv command exception: %s (command: %s)", e, args)
             return None
 
-    async def load_file(self, rel_path: str) -> bool:
+    async def load_file(self, rel_path: str, fade_in_ms: int = 0, fade_out_ms: int = 0, end_time_ms: Optional[int] = None) -> bool:
         abs_path = (self.media_root / rel_path).resolve()
         abs_path_str = str(abs_path)
         
-        logger.info("Loading file: %s", abs_path_str)
+        # Store fade parameters for later use
+        self._fade_in_ms = fade_in_ms
+        self._fade_out_ms = fade_out_ms
+        self._end_time_ms = end_time_ms
+        
+        logger.info("Loading file: %s (fade_in=%dms, fade_out=%dms)", abs_path_str, fade_in_ms, fade_out_ms)
         logger.debug("  Media root: %s", self.media_root)
         logger.debug("  Relative path: %s", rel_path)
         logger.debug("  mpv connected: %s, writer: %s, running: %s", self._connected, self._writer is not None, self._running)
@@ -196,6 +204,9 @@ class MpvController:
             logger.error("mpv loadfile error response: %s for file: %s", result.get("error"), abs_path_str)
             logger.error("  Full mpv response: %s", result)
             return False
+        
+        # Apply fade filters
+        await self._apply_fade_filters()
             
         logger.info("Successfully loaded file: %s", abs_path_str)
         return True
@@ -232,6 +243,44 @@ class MpvController:
 
     async def set_fullscreen(self, on: bool = True) -> None:
         await self._command("set_property", "fullscreen", on)
+
+    async def _apply_fade_filters(self) -> None:
+        """Apply video fade filters based on stored fade parameters."""
+        filters = []
+        
+        # Fade in at the start
+        if self._fade_in_ms > 0:
+            fade_in_s = self._fade_in_ms / 1000.0
+            filters.append(f"fade=t=in:st=0:d={fade_in_s}")
+            logger.debug("Applied fade-in filter: %s seconds", fade_in_s)
+        
+        # Fade out - need to calculate start time
+        if self._fade_out_ms > 0:
+            fade_out_s = self._fade_out_ms / 1000.0
+            
+            # If we have an explicit end time, use it
+            if self._end_time_ms is not None:
+                fade_start_s = (self._end_time_ms - self._fade_out_ms) / 1000.0
+                filters.append(f"fade=t=out:st={fade_start_s}:d={fade_out_s}")
+                logger.debug("Applied fade-out filter: start=%ss, duration=%ss", fade_start_s, fade_out_s)
+            else:
+                # Try to get duration from mpv
+                duration_result = await self._command("get_property", "duration")
+                if duration_result and duration_result.get("error") == "success":
+                    duration_s = duration_result.get("data")
+                    if duration_s and duration_s > fade_out_s:
+                        fade_start_s = duration_s - fade_out_s
+                        filters.append(f"fade=t=out:st={fade_start_s}:d={fade_out_s}")
+                        logger.debug("Applied fade-out filter: start=%ss, duration=%ss", fade_start_s, fade_out_s)
+        
+        # Apply all filters
+        if filters:
+            filter_string = ",".join(filters)
+            result = await self._command("set_property", "vf", filter_string)
+            if result and result.get("error") == "success":
+                logger.info("Applied video filters: %s", filter_string)
+            else:
+                logger.warning("Failed to apply video filters: %s", result)
 
     async def blackout(self) -> None:
         """Show black screen."""
